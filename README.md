@@ -38,7 +38,7 @@ RevoBank API is a robust RESTful banking service built with Python and Flask. It
 ### Setup Steps
 1. Clone the repository:
    ```bash
-   git clone [https://github.com/revou-fsse-oct24/milestone-3-Rifqi-16.git]
+   git clone https://github.com/revou-fsse-oct24/milestone-3-Rifqi-16.git
    cd revobank-api
    ```
 

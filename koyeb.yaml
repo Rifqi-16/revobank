@@ -7,7 +7,7 @@ app:
 
   env:
     - name: DATABASE_URL
-      value: "postgres://postgres:revou358067@db.ampdnvtcatrokensnw.supabase.co:5432/postgres"
+      value: "postgresql://postgres.ampdnvtcairokensrwfz:revou358067@aws-0-ap-southeast-1.pooler.supabase.com:5432/postgres"
     - name: SECRET_KEY
       value: "$SECRET_KEY"
 

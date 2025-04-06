@@ -8,7 +8,10 @@ def create_app():
     app = Flask(__name__)
     app.config['SECRET_KEY'] = os.getenv('SECRET_KEY', 'revobank_secret_key')
     app.config['SQLALCHEMY_DATABASE_URI'] = os.getenv(
-        'DATABASE_URL', 'postgresql://postgres:postgres@localhost:5432/revobank?sslmode=require')
+        'DATABASE_URL', 'postgresql://postgres:postgres@localhost:5432/revobank')
+    # Ensure DATABASE_URL is properly configured for the environment
+    if 'DATABASE_URL' in os.environ:
+        app.config['SQLALCHEMY_DATABASE_URI'] = os.environ['DATABASE_URL']
     app.config['SQLALCHEMY_TRACK_MODIFICATIONS'] = False
     app.config['SQLALCHEMY_ENGINE_OPTIONS'] = {
         'pool_pre_ping': True

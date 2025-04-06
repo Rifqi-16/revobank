@@ -1,18 +1,21 @@
 FROM python:3.9-slim
 
-WORKDIR /app
-
 # Install PostgreSQL client and build dependencies
 RUN apt-get update && apt-get install -y \
     libpq-dev \
     gcc \
     && rm -rf /var/lib/apt/lists/*
 
-# Copy application files
-COPY requirements.txt .
+# Create and set working directory
+RUN mkdir -p /usr/src/app
+WORKDIR /usr/src/app
+
+# Copy requirements first to leverage Docker cache
+COPY requirements.txt /usr/src/app/
 RUN pip install --no-cache-dir -r requirements.txt
 
-COPY . .
+# Copy application files
+COPY . /usr/src/app/
 
 EXPOSE 8080
 

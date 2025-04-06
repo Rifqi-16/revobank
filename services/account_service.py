@@ -1,27 +1,37 @@
-from db.database import accounts_db
+from db.database import db
 from models.account import Account
+
 
 def get_user_accounts(user_id):
     """
     Get all accounts for a specific user
     """
-    return [account for account in accounts_db if account['user_id'] == user_id]
+    return Account.query.filter_by(user_id=user_id).all()
+
 
 def get_account_by_id(account_id, user_id=None):
     """
     Get account by ID, optionally filtering by user ID for authorization
     """
+    query = Account.query.filter_by(id=account_id)
     if user_id:
-        return next((account for account in accounts_db if account['id'] == account_id and account['user_id'] == user_id), None)
-    return next((account for account in accounts_db if account['id'] == account_id), None)
+        query = query.filter_by(user_id=user_id)
+    return query.first()
+
 
 def create_account(user_id, account_type, initial_balance=0.0):
     """
     Create a new account for a user
     """
-    new_account = Account.create(user_id, account_type, initial_balance)
-    accounts_db.append(new_account)
+    new_account = Account(
+        user_id=user_id,
+        account_type=account_type,
+        balance=initial_balance
+    )
+    db.session.add(new_account)
+    db.session.commit()
     return new_account
+
 
 def update_account(account_id, user_id, data):
     """
@@ -30,20 +40,20 @@ def update_account(account_id, user_id, data):
     account = get_account_by_id(account_id, user_id)
     if not account:
         return None, 'Account not found or unauthorized'
-    
+
     # Update fields
     if 'status' in data:
-        account['status'] = data['status']
+        account.status = data['status']
     if 'account_type' in data:
-        account['account_type'] = data['account_type']
-    
-    # Update in database
-    for i, acc in enumerate(accounts_db):
-        if acc['id'] == account_id:
-            accounts_db[i] = account
-            break
-    
-    return account, None
+        account.account_type = data['account_type']
+
+    try:
+        db.session.commit()
+        return account, None
+    except Exception as e:
+        db.session.rollback()
+        return None, str(e)
+
 
 def delete_account(account_id, user_id):
     """
@@ -52,13 +62,11 @@ def delete_account(account_id, user_id):
     account = get_account_by_id(account_id, user_id)
     if not account:
         return False, 'Account not found or unauthorized'
-    
-    # For testing purposes, allow deleting accounts with balance
-    # In a real application, you might want to check if account has balance
-    # if account['balance'] > 0:
-    #     return False, 'Cannot delete account with positive balance'
-    
-    # Remove from database
-    accounts_db[:] = [acc for acc in accounts_db if acc['id'] != account_id]
-    
-    return True, None
+
+    try:
+        db.session.delete(account)
+        db.session.commit()
+        return True, None
+    except Exception as e:
+        db.session.rollback()
+        return False, str(e)

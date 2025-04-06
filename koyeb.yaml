@@ -1,0 +1,31 @@
+app:
+  name: revobank-api
+  type: docker
+  ports:
+    - port: 8080
+      protocol: http
+
+  env:
+    - name: DATABASE_URL
+      value: "postgres://postgres:revou358067@db.ampdnvtcatrokensnw.supabase.co:5432/postgres"
+    - name: SECRET_KEY
+      value: "$SECRET_KEY"
+
+  regions:
+    - fra
+
+  instance:
+    type: nano
+    cpu: 0.25
+    memory: 512M
+
+  healthcheck:
+    port: 8080
+    path: /
+    initialDelay: 10s
+    periodSeconds: 30
+    timeoutSeconds: 10
+
+  build:
+    dockerfile: Dockerfile
+  image: docker.io/rifqiramadani/milestone-3-rifqi-16-web:latest

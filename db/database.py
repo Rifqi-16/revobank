@@ -1,10 +1,3 @@
-# In-memory database collections
+from flask_sqlalchemy import SQLAlchemy
 
-# User collection
-users_db = []
-
-# Account collection
-accounts_db = []
-
-# Transaction collection
-transactions_db = []
+db = SQLAlchemy()

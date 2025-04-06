@@ -1,24 +1,23 @@
-import uuid
-import datetime
+from db.database import db
+from datetime import datetime
 
-class User:
-    """
-    User model representing a bank customer
-    """
-    @staticmethod
-    def create(username, password, email, full_name=''):
-        """
-        Create a new user object
-        """
-        return {
-            'id': str(uuid.uuid4()),
-            'username': username,
-            'password': password,  # In production, hash the password
-            'email': email,
-            'full_name': full_name,
-            'created_at': datetime.datetime.now().isoformat()
-        }
-    
+
+class User(db.Model):
+    __tablename__ = 'users'
+    __table_args__ = {'extend_existing': True}
+
+    id = db.Column(db.Integer, primary_key=True)
+    username = db.Column(db.String(255), unique=True, nullable=False)
+    email = db.Column(db.String(255), unique=True, nullable=False)
+    password_hash = db.Column(db.String(255), nullable=False)
+    full_name = db.Column(db.String(255))
+    created_at = db.Column(db.DateTime, default=datetime.utcnow)
+    updated_at = db.Column(
+        db.DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+
+    # Relationships
+    accounts = db.relationship('Account', backref='user', lazy=True)
+
     @staticmethod
     def to_response(user):
         """

@@ -6,8 +6,7 @@ RUN apt-get update && apt-get install -y \
     gcc \
     && rm -rf /var/lib/apt/lists/*
 
-# Create and set working directory
-RUN mkdir -p /app
+# Set working directory
 WORKDIR /app
 
 COPY requirements.txt .

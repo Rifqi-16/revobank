@@ -78,7 +78,10 @@ def create_app():
 
     with app.app_context():
         try:
+            # Initialize database tables
             db.create_all()
+            app.logger.info("Database tables created successfully")
+
             # Add sample user if not exists
             if not User.query.filter_by(username='demo').first():
                 sample_user = User(
@@ -87,20 +90,24 @@ def create_app():
                     email='demo@revobank.com',
                     full_name='Demo User'
                 )
-            db.session.add(sample_user)
-            db.session.commit()
+                db.session.add(sample_user)
+                db.session.commit()
+                app.logger.info("Sample user created successfully")
 
-            # Add sample account
-            sample_account = Account(
-                user_id=sample_user.id,
-                account_type='savings',
-                account_number='1234567890',
-                balance=1000.0
-            )
-            db.session.add(sample_account)
-            db.session.commit()
+                # Add sample account
+                sample_account = Account(
+                    user_id=sample_user.id,
+                    account_type='savings',
+                    account_number='1234567890',
+                    balance=1000.0
+                )
+                db.session.add(sample_account)
+                db.session.commit()
+                app.logger.info("Sample account created successfully")
+
         except Exception as e:
             app.logger.error(f"Database initialization error: {str(e)}")
+            db.session.rollback()
             raise
 
     return app

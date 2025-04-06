@@ -8,4 +8,4 @@ services:
     environment:
       - FLASK_APP=run.py
       - FLASK_ENV=production
-      - DB_CONNECTION_STRING=postgresql+psycopg2://postgres:revou358067@db.ampdnvtcatrokensnw.supabase.co:5432/postgres
+      - DB_CONNECTION_STRING=postgresql://postgres:revou358067@db.ampdnvtcatrokensnw.supabase.co:5432/postgres

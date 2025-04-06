@@ -13,7 +13,12 @@ def create_app():
     app.config['SQLALCHEMY_DATABASE_URI'] = database_url or 'postgresql://postgres:postgres@localhost:5432/revobank'
     app.config['SQLALCHEMY_TRACK_MODIFICATIONS'] = False
     app.config['SQLALCHEMY_ENGINE_OPTIONS'] = {
-        'pool_pre_ping': True
+        'pool_pre_ping': True,
+        'pool_timeout': 30,
+        'pool_recycle': 1800,
+        'connect_args': {
+            'connect_timeout': 10
+        }
     }
 
     # Initialize extensions
@@ -72,15 +77,16 @@ def create_app():
     from werkzeug.security import generate_password_hash
 
     with app.app_context():
-        db.create_all()
-        # Add sample user if not exists
-        if not User.query.filter_by(username='demo').first():
-            sample_user = User(
-                username='demo',
-                password_hash=generate_password_hash('password'),
-                email='demo@revobank.com',
-                full_name='Demo User'
-            )
+        try:
+            db.create_all()
+            # Add sample user if not exists
+            if not User.query.filter_by(username='demo').first():
+                sample_user = User(
+                    username='demo',
+                    password_hash=generate_password_hash('password'),
+                    email='demo@revobank.com',
+                    full_name='Demo User'
+                )
             db.session.add(sample_user)
             db.session.commit()
 
@@ -93,6 +99,9 @@ def create_app():
             )
             db.session.add(sample_account)
             db.session.commit()
+        except Exception as e:
+            app.logger.error(f"Database initialization error: {str(e)}")
+            raise
 
     return app
 

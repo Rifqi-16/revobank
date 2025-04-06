@@ -1,5 +1,7 @@
 FROM python:3.9-slim
 
+# Create app directory
+RUN mkdir -p /app
 WORKDIR /app
 
 # Install PostgreSQL client and build dependencies

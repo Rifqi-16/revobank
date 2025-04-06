@@ -7,32 +7,7 @@ services:
       - "8080:8080"
     environment:
       - FLASK_APP=run.py
-      - FLASK_ENV=development
-      - DATABASE_URL=postgresql://postgres:postgres@db:5432/revobank
-    depends_on:
-      - db
+      - FLASK_ENV=production
+      - DATABASE_URL=postgres://postgres:revou358067@db.ampdnvtcatrokensnw.supabase.co:5432/postgres
     volumes:
       - .:/app
-
-  db:
-    image: postgres:15-alpine
-    volumes:
-      - postgres_data:/var/lib/postgresql/data
-    environment:
-      - POSTGRES_USER=postgres
-      - POSTGRES_PASSWORD=postgres
-      - POSTGRES_DB=revobank
-    ports:
-      - "5432:5432"
-  pgadmin:
-    image: dpage/pgadmin4
-    environment:
-      - PGADMIN_DEFAULT_EMAIL=admin@admin.com
-      - PGADMIN_DEFAULT_PASSWORD=admin
-    ports:
-      - "5050:80"
-    depends_on:
-      - db
-
-volumes:
-  postgres_data:

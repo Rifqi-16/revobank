@@ -11,14 +11,7 @@ def create_app():
         'DB_CONNECTION_STRING', 'postgresql://postgres:postgres@localhost:5432/revobank')
     app.config['SQLALCHEMY_TRACK_MODIFICATIONS'] = False
     app.config['SQLALCHEMY_ENGINE_OPTIONS'] = {
-        'pool_size': 5,
-        'max_overflow': 2,
-        'pool_timeout': 30,
-        'pool_recycle': 1800,
-        'pool_pre_ping': True,
-        'connect_args': {
-            'sslmode': 'require'
-        }
+        'pool_pre_ping': True
     }
 
     # Initialize extensions

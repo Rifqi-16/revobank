@@ -6,16 +6,15 @@ RUN apt-get update && apt-get install -y \
     gcc \
     && rm -rf /var/lib/apt/lists/*
 
-# Create and set working directory
-RUN mkdir -p /usr/src/app
-WORKDIR /usr/src/app
+# Set working directory
+WORKDIR /app
 
 # Copy requirements first to leverage Docker cache
-COPY requirements.txt /usr/src/app/
+COPY requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
 
 # Copy application files
-COPY . /usr/src/app/
+COPY . .
 
 EXPOSE 8080
 

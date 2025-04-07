@@ -43,6 +43,10 @@ def create_app():
     app.logger.info(
         f"Environment detection: Koyeb={is_koyeb}, Production={is_production}")
 
+    # Define SQLite fallback path first so it can be used in all conditions
+    sqlite_fallback_path = os.path.join(
+        os.path.dirname(os.path.abspath(__file__)), 'revobank.db')
+
     # Force enable SQLite fallback in Koyeb environment for resilience
     if is_koyeb:
         use_sqlite_fallback = True
@@ -65,13 +69,11 @@ def create_app():
             else:
                 app.logger.warning(
                     "No valid DATABASE_URL found, will use SQLite fallback")
+                # Explicitly set database_url to SQLite
+                database_url = f'sqlite:///{sqlite_fallback_path}'
     else:
         use_sqlite_fallback = os.getenv(
             'USE_SQLITE_FALLBACK', 'false').lower() == 'true'
-
-    # Add SQLite fallback option for when PostgreSQL connection fails
-    sqlite_fallback_path = os.path.join(
-        os.path.dirname(os.path.abspath(__file__)), 'revobank.db')
 
     # Enhanced logging for database configuration
     app.logger.info(
@@ -188,7 +190,7 @@ def create_app():
                 "Continuing with application startup despite database issues")
 
     # Register blueprints
-    app.register_blueprint(auth_router, url_prefix='/login')
+    app.register_blueprint(auth_router, url_prefix='/login', name='auth_login')
     app.register_blueprint(user_router, url_prefix='/users')
     app.register_blueprint(account_router, url_prefix='/accounts')
     app.register_blueprint(transaction_router, url_prefix='/transactions')
@@ -266,7 +268,7 @@ def create_app():
         })
 
     # Register blueprints
-    app.register_blueprint(auth_router, url_prefix='/login')
+    app.register_blueprint(auth_router, url_prefix='/login', name='auth_login')
     app.register_blueprint(user_router, url_prefix='/users')
     app.register_blueprint(account_router, url_prefix='/accounts')
     app.register_blueprint(transaction_router, url_prefix='/transactions')
@@ -363,7 +365,12 @@ def create_app():
         # For Koyeb, verify DATABASE_URL is set correctly
         if is_koyeb:
             current_db_url = app.config['SQLALCHEMY_DATABASE_URI']
-            if 'localhost' in current_db_url or 'sqlite://' not in current_db_url and not current_db_url.startswith('postgresql://'):
+            # Check if we have a valid PostgreSQL URL or if we're already using SQLite
+            is_valid_postgres = current_db_url.startswith(
+                'postgresql://') and 'localhost' not in current_db_url
+            is_valid_sqlite = current_db_url.startswith('sqlite:///')
+
+            if not (is_valid_postgres or is_valid_sqlite):
                 app.logger.error(
                     "CRITICAL ERROR: Invalid database configuration in Koyeb environment")
                 app.logger.info(
@@ -384,6 +391,7 @@ def create_app():
 
                     # Reinitialize db with new connection string
                     db.init_app(app)
+                    using_sqlite_fallback = False
                 else:
                     app.logger.warning(
                         "Could not recover valid DATABASE_URL, will use SQLite fallback")
@@ -486,7 +494,7 @@ def create_app():
                             app.logger.error(
                                 f"SQLite fallback also failed: {str(sqlite_error)}")
                             # Continue without database in production
-                            if is_production:
+                            if is_production or is_koyeb:
                                 app.logger.warning(
                                     "Running in production mode with limited functionality due to database connection failure")
                                 break

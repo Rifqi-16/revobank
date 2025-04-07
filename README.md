@@ -106,7 +106,7 @@ RevoBank API is a robust RESTful banking service built with Python and Flask. It
    docker-compose exec web flask db upgrade
    ```
 
-The API will be available at `http://localhost:8080`
+The API will be available at `http://localhost:8000` when running with Koyeb configuration, or `http://localhost:8080` when running with Docker Compose
 
 ## Database Management
 
@@ -132,18 +132,22 @@ Detailed API documentation is available in [API_README.md](API_README.md)
 
 ## Deployment
 
+### Live Demo
+The deployed application can be accessed at:
+[https://initial-berte-rifqi-16-9b1de58f.koyeb.app/](https://initial-berte-rifqi-16-9b1de58f.koyeb.app/)
+
 ### Deploying to Koyeb
 
-1. Install Koyeb CLI and login:
+1. Install Koyeb CLI dan login:
    ```bash
    curl -fsSL https://cli.koyeb.com/install.sh | bash
    koyeb login
    ```
 
-2. Deploy the application:
+2. Deploy aplikasi:
    ```bash
    koyeb app create revobank
-   koyeb service create main --app revobank --git github.com/your-username/revobank --git-branch main --port 8080
+   koyeb service create main --app revobank --git github.com/your-username/revobank --git-branch main --port 8000
    ```
 
 3. Set environment variables:

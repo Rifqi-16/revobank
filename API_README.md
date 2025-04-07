@@ -50,31 +50,37 @@ This project implements a RESTful API for RevoBank with the following features:
 ### Prerequisites
 
 - Python 3.8 or higher
-- Flask
-- PyJWT
+- PostgreSQL 15 or higher
+- Docker and Docker Compose (optional)
 
 ### Installation
 
 1. Clone the repository
 
 ```bash
-git clone <repository-url>
-cd revobank-api
+git clone https://github.com/revou-fsse-oct24/milestone-3-Rifqi-16.git
+cd milestone-3-Rifqi-16
 ```
 
 2. Install dependencies
 
 ```bash
-pip install flask pyjwt
+pip install -r requirements.txt
 ```
 
 ### Running the Application
 
+With Docker:
 ```bash
-python main.py
+docker-compose up --build
 ```
 
-The API will be available at `http://localhost:5000`.
+Without Docker:
+```bash
+python run.py
+```
+
+The API will be available at `http://localhost:8000` when running with Koyeb configuration, or `http://localhost:8080` when running with Docker Compose.
 
 ## Authentication Flow
 

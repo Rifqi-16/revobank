@@ -9,30 +9,93 @@ def create_app():
     app = Flask(__name__)
     app.config['SECRET_KEY'] = os.getenv('SECRET_KEY', 'revobank_secret_key')
     database_url = os.getenv('DATABASE_URL')
+
+    # Ensure we're using the correct protocol for PostgreSQL
     if database_url and database_url.startswith('postgres://'):
         database_url = database_url.replace('postgres://', 'postgresql://', 1)
+        app.logger.info("Converted postgres:// URL to postgresql:// format")
 
-    # Prioritize DATABASE_URL environment variable for deployment
-    # Only fallback to localhost in development environment
-    if not database_url:
+    # Log the database URL (with password masked)
+    if database_url:
+        masked_url = database_url
+        if '@' in masked_url:
+            parts = masked_url.split('@')
+            auth_parts = parts[0].split(':')
+            if len(auth_parts) > 1:  # Fixed condition to properly mask password
+                masked_url = f"{auth_parts[0]}:****@{parts[1]}"
+        app.logger.info(f"Using database URL: {masked_url}")
+
+        # Additional logging for Koyeb environment
+        if os.getenv('KOYEB') == 'true':
+            app.logger.info(
+                "Running in Koyeb environment with provided DATABASE_URL")
+    else:
         app.logger.warning(
             "DATABASE_URL not found in environment variables, using default local database")
         database_url = 'postgresql://postgres:postgres@localhost:5432/revobank'
+        app.logger.info("Using default local database connection string")
+
+    # Check if we're running in Koyeb environment
+    is_koyeb = os.getenv('KOYEB') == 'true'
+    is_production = os.getenv('ENVIRONMENT') == 'production'
+
+    # Log environment detection
+    app.logger.info(
+        f"Environment detection: Koyeb={is_koyeb}, Production={is_production}")
+
+    # Force enable SQLite fallback in Koyeb environment for resilience
+    if is_koyeb:
+        use_sqlite_fallback = True
+        app.logger.info("SQLite fallback enabled for Koyeb deployment")
+    else:
+        use_sqlite_fallback = os.getenv(
+            'USE_SQLITE_FALLBACK', 'false').lower() == 'true'
+
+    # Add SQLite fallback option for when PostgreSQL connection fails
+    use_sqlite_fallback = os.getenv(
+        'USE_SQLITE_FALLBACK', 'false').lower() == 'true'
+    sqlite_fallback_path = os.path.join(
+        os.path.dirname(os.path.abspath(__file__)), 'revobank.db')
+
+    # Enhanced logging for database configuration
+    app.logger.info(
+        f"Database configuration: SQLite fallback enabled={use_sqlite_fallback}")
+    app.logger.info(f"SQLite fallback path: {sqlite_fallback_path}")
+
+    # For Koyeb deployment, ensure we're not using localhost
+    if is_koyeb and 'localhost' in database_url:
+        app.logger.error(
+            "Invalid database configuration: Using localhost in Koyeb environment")
+        # Try to use environment variable again or use SQLite fallback
+        koyeb_db_url = os.getenv('DATABASE_URL')
+        if koyeb_db_url:
+            app.logger.info("Recovered DATABASE_URL from environment")
+            database_url = koyeb_db_url
+            # Ensure we're using the correct protocol for PostgreSQL
+            if database_url.startswith('postgres://'):
+                database_url = database_url.replace(
+                    'postgres://', 'postgresql://', 1)
+        else:
+            app.logger.warning(
+                "Falling back to SQLite in Koyeb environment due to invalid database URL")
+            database_url = f'sqlite:///{sqlite_fallback_path}'
+            use_sqlite_fallback = True
 
     app.config['SQLALCHEMY_DATABASE_URI'] = database_url
+    app.config['SQLITE_FALLBACK_URI'] = f'sqlite:///{sqlite_fallback_path}'
     app.config['SQLALCHEMY_TRACK_MODIFICATIONS'] = False
-    # Configure database connection options based on environment
-    # For deployment environments, we need more resilient settings
+
+    # Configure database connection options with more resilient settings for cloud deployment
     engine_options = {
-        'pool_pre_ping': True,
-        'pool_timeout': 30,
-        'pool_recycle': 1800,
-        'pool_size': 5,
-        'max_overflow': 10
+        'pool_pre_ping': True,  # Verify connections before using them
+        'pool_timeout': 30,     # Wait up to 30 seconds for a connection
+        'pool_recycle': 1800,   # Recycle connections after 30 minutes
+        'pool_size': 5,         # Maintain 5 connections in the pool
+        'max_overflow': 10      # Allow up to 10 overflow connections
     }
 
     # Only add connect_args for non-Supabase connections
-    # Supabase and some managed PostgreSQL services don't support all these parameters
+    # Some managed PostgreSQL services don't support all these parameters
     if database_url and 'supabase.com' not in database_url:
         engine_options['connect_args'] = {
             'connect_timeout': 30,
@@ -60,17 +123,33 @@ def create_app():
     # Root route
     @app.route('/')
     def index():
-        # Check database connection status
+        # Check database connection status with improved error handling
         db_status = "connected"
         db_error = None
-        try:
-            with db.engine.connect() as connection:
-                pass
-        except Exception as e:
-            db_status = "disconnected"
-            db_error = str(e)
-            app.logger.error(
-                f"Database connection error on index route: {str(e)}")
+        connection_attempts = 0
+        max_attempts = 3
+
+        # Try multiple times to connect to the database
+        while connection_attempts < max_attempts:
+            try:
+                connection_attempts += 1
+                app.logger.info(
+                    f"Root route: Database connection attempt {connection_attempts}/{max_attempts}")
+
+                with db.engine.connect() as connection:
+                    pass
+                break  # Connection successful, exit the loop
+            except Exception as e:
+                if connection_attempts >= max_attempts:
+                    db_status = "disconnected"
+                    db_error = str(e)
+                    app.logger.error(
+                        f"Database connection error on index route after {max_attempts} attempts: {str(e)}")
+                else:
+                    app.logger.warning(
+                        f"Root route: Connection attempt {connection_attempts} failed, retrying...")
+                    import time
+                    time.sleep(1)  # Wait 1 second before retrying
 
         return jsonify({
             'name': 'RevoBank API',
@@ -126,16 +205,32 @@ def create_app():
         db_status = "connected"
         db_error = None
         connection_time = None
-        try:
-            start_time = datetime.datetime.now()
-            with db.engine.connect() as connection:
-                connection_time = (datetime.datetime.now() -
-                                   start_time).total_seconds()
-        except Exception as e:
-            db_status = "disconnected"
-            db_error = str(e)
-            app.logger.error(
-                f"Database connection error on diagnostics route: {str(e)}")
+        connection_attempts = 0
+        max_attempts = 3
+
+        # Try multiple times to connect to the database
+        while connection_attempts < max_attempts:
+            try:
+                connection_attempts += 1
+                app.logger.info(
+                    f"Diagnostics: Database connection attempt {connection_attempts}/{max_attempts}")
+
+                start_time = datetime.datetime.now()
+                with db.engine.connect() as connection:
+                    connection_time = (datetime.datetime.now() -
+                                       start_time).total_seconds()
+                break  # Connection successful, exit the loop
+            except Exception as e:
+                if connection_attempts >= max_attempts:
+                    db_status = "disconnected"
+                    db_error = str(e)
+                    app.logger.error(
+                        f"Database connection error on diagnostics route after {max_attempts} attempts: {str(e)}")
+                else:
+                    app.logger.warning(
+                        f"Diagnostics: Connection attempt {connection_attempts} failed, retrying...")
+                    import time
+                    time.sleep(1)  # Wait 1 second before retrying
 
         # Get database URL info (safely)
         db_url = app.config['SQLALCHEMY_DATABASE_URI']
@@ -179,17 +274,71 @@ def create_app():
     from werkzeug.security import generate_password_hash
 
     with app.app_context():
-        retries = 5
+        max_retries = 10  # Increased from 5 to 10 for more resilience
+        retry_delay = 5   # Seconds to wait between retries
+        retries = max_retries
+        using_sqlite_fallback = False
+
+        # Log database initialization start
+        app.logger.info("Starting database initialization process")
+        app.logger.info(
+            f"Current environment: Koyeb={is_koyeb}, Production={is_production}")
+        app.logger.info(
+            f"Database URL: {app.config['SQLALCHEMY_DATABASE_URI'].split('@')[0].split(':')[0]}:****@{app.config['SQLALCHEMY_DATABASE_URI'].split('@')[1] if '@' in app.config['SQLALCHEMY_DATABASE_URI'] else 'unknown'}")
+        app.logger.info(f"SQLite fallback enabled: {use_sqlite_fallback}")
+
+        # For Koyeb, verify DATABASE_URL is set correctly
+        if is_koyeb:
+            if 'localhost' in app.config['SQLALCHEMY_DATABASE_URI']:
+                app.logger.error(
+                    "CRITICAL ERROR: Using localhost database in Koyeb environment")
+                app.logger.info(
+                    "Attempting to recover correct DATABASE_URL from environment")
+
+                # Try to get DATABASE_URL directly from environment again
+                koyeb_db_url = os.getenv('DATABASE_URL')
+                if koyeb_db_url and 'localhost' not in koyeb_db_url:
+                    app.logger.info(
+                        "Successfully recovered DATABASE_URL from environment")
+                    # Update the database URL
+                    if koyeb_db_url.startswith('postgres://'):
+                        koyeb_db_url = koyeb_db_url.replace(
+                            'postgres://', 'postgresql://', 1)
+                    app.config['SQLALCHEMY_DATABASE_URI'] = koyeb_db_url
+                    app.logger.info(
+                        f"Updated database URL: {koyeb_db_url.split('@')[0].split(':')[0]}:****@{koyeb_db_url.split('@')[1] if '@' in koyeb_db_url else 'unknown'}")
+                else:
+                    app.logger.warning(
+                        "Could not recover valid DATABASE_URL, will use SQLite fallback")
+                    app.config['SQLALCHEMY_DATABASE_URI'] = app.config['SQLITE_FALLBACK_URI']
+                    using_sqlite_fallback = True
+
         while retries > 0:
             try:
-                # Test database connection
-                app.logger.info("Attempting to connect to database at: %s",
-                                app.config['SQLALCHEMY_DATABASE_URI'].replace(":postgres@", ":****@"))
-                db.engine.connect()
+                # Test database connection with more detailed logging
+                masked_url = app.config['SQLALCHEMY_DATABASE_URI']
+                if '@' in masked_url:
+                    parts = masked_url.split('@')
+                    auth_parts = parts[0].split(':')
+                    if len(auth_parts) > 1:  # Fixed condition to properly mask password
+                        masked_url = f"{auth_parts[0]}:****@{parts[1]}"
+
+                app.logger.info(
+                    f"Attempt {max_retries - retries + 1}/{max_retries}: Connecting to database at: {masked_url}")
+
+                # Test connection before creating tables
+                connection = db.engine.connect()
+                connection.close()
                 app.logger.info("Successfully connected to the database")
-                # Initialize database tables
-                db.create_all()
-                app.logger.info("Database tables created successfully")
+
+                # Initialize database tables with error handling
+                try:
+                    db.create_all()
+                    app.logger.info("Database tables created successfully")
+                except Exception as table_error:
+                    app.logger.error(
+                        f"Error creating database tables: {str(table_error)}")
+                    raise
 
                 # Add sample user if not exists
                 if not User.query.filter_by(username='demo').first():
@@ -221,14 +370,58 @@ def create_app():
 
             except Exception as e:
                 retries -= 1
+                # Log more detailed error information for debugging
+                app.logger.warning(
+                    f"Database connection attempt failed: {str(e)}")
+                app.logger.warning(
+                    f"Current database URL: {app.config['SQLALCHEMY_DATABASE_URI'].split('@')[0].split(':')[0]}:****@{app.config['SQLALCHEMY_DATABASE_URI'].split('@')[1] if '@' in app.config['SQLALCHEMY_DATABASE_URI'] else 'unknown'}")
+
                 if retries == 0:
                     app.logger.error(
-                        f"Failed to connect to database after 5 attempts: {str(e)}")
-                    raise
+                        f"Failed to connect to database after {max_retries} attempts: {str(e)}")
+
+                    # Try SQLite fallback if PostgreSQL connection fails in production/Koyeb
+                    if (is_production or is_koyeb) and not using_sqlite_fallback:
+                        app.logger.warning(
+                            "Attempting to use SQLite as fallback database")
+                        try:
+                            # Switch to SQLite database
+                            app.config['SQLALCHEMY_DATABASE_URI'] = app.config['SQLITE_FALLBACK_URI']
+                            using_sqlite_fallback = True
+                            app.logger.info(
+                                f"Switched to SQLite fallback: {app.config['SQLITE_FALLBACK_URI']}")
+
+                            # Reinitialize database with SQLite
+                            db.init_app(app)
+
+                            # Create tables in SQLite
+                            db.create_all()
+                            app.logger.info(
+                                "Successfully switched to SQLite fallback database")
+
+                            # Reset retries to try again with SQLite
+                            retries = 3
+                            continue
+                        except Exception as sqlite_error:
+                            app.logger.error(
+                                f"SQLite fallback also failed: {str(sqlite_error)}")
+
+                    # In production, we might want to continue without the database rather than crashing
+                    if os.getenv('ENVIRONMENT') == 'production':
+                        app.logger.error(
+                            "Running in production mode without database. API will have limited functionality.")
+                        break
+                    else:
+                        app.logger.error(
+                            "Not in production mode, raising exception to prevent startup with broken database")
+                        raise
+
+                # Exponential backoff: increase wait time with each retry
+                current_delay = retry_delay * (max_retries - retries)
                 app.logger.warning(
-                    f"Database connection attempt failed. Retrying in 5 seconds... ({retries} attempts left)")
+                    f"Retrying in {current_delay} seconds... ({retries} attempts left)")
                 import time
-                time.sleep(5)  # Wait 5 seconds before retrying
+                time.sleep(current_delay)
             else:
                 app.logger.info(
                     "Database connection and initialization completed successfully")
@@ -237,7 +430,55 @@ def create_app():
     return app
 
 
-app = create_app()
+# Wrap app creation in try-except to handle any initialization errors
+try:
+    # Log startup information to help with debugging
+    import logging
+    logging.info("Starting RevoBank API application")
+    logging.info(
+        f"Environment variables: KOYEB={os.getenv('KOYEB')}, ENVIRONMENT={os.getenv('ENVIRONMENT')}")
+    logging.info(
+        f"DATABASE_URL is {'set' if os.getenv('DATABASE_URL') else 'not set'}")
+
+    if os.getenv('DATABASE_URL'):
+        masked_url = os.getenv('DATABASE_URL')
+        if '@' in masked_url:
+            parts = masked_url.split('@')
+            auth_parts = parts[0].split(':')
+            if len(auth_parts) > 1:
+                masked_url = f"{auth_parts[0]}:****@{parts[1]}"
+        logging.info(f"DATABASE_URL value: {masked_url}")
+
+    app = create_app()
+    # Log successful app creation
+    if hasattr(app, 'logger'):
+        app.logger.info("Application successfully created and configured")
+except Exception as e:
+    # If we can't even create the app, log to stdout and create a minimal app
+    import logging
+    logging.error(f"Critical error during app creation: {str(e)}")
+    logging.error(f"Stack trace:", exc_info=True)
+
+    # Create a minimal app that can at least respond to health checks
+    app = Flask(__name__)
+
+    @app.route('/')
+    def error_index():
+        # Include environment information in error response
+        return jsonify({
+            'name': 'RevoBank API',
+            'status': 'error',
+            'error': f"Application failed to initialize properly: {str(e)}",
+            'database_info': {
+                'connection_status': 'disconnected',
+                'error': str(e)
+            },
+            'environment': {
+                'koyeb': os.getenv('KOYEB') == 'true',
+                'environment': os.getenv('ENVIRONMENT', 'development'),
+                'database_url_set': os.getenv('DATABASE_URL') is not None
+            }
+        }), 500
 
 if __name__ == '__main__':
     app.run(host='0.0.0.0', port=8080, debug=True)

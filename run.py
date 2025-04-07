@@ -79,19 +79,25 @@ def create_app():
     app.logger.info(f"SQLite fallback path: {sqlite_fallback_path}")
 
     # For Koyeb deployment, ensure we're not using localhost
-    if is_koyeb and 'localhost' in database_url:
-        app.logger.error(
-            "Invalid database configuration: Using localhost in Koyeb environment")
-        # Try to use environment variable again or use SQLite fallback
+    if is_koyeb:
+        app.logger.info(
+            "Running in Koyeb environment, checking database configuration")
+        # Always try to get fresh DATABASE_URL from environment in Koyeb
         koyeb_db_url = os.getenv('DATABASE_URL')
+
         if koyeb_db_url and 'localhost' not in koyeb_db_url:
-            app.logger.info("Recovered DATABASE_URL from environment")
+            app.logger.info(
+                "Using DATABASE_URL from Koyeb environment variables")
             database_url = koyeb_db_url
             # Ensure we're using the correct protocol for PostgreSQL
             if database_url.startswith('postgres://'):
                 database_url = database_url.replace(
                     'postgres://', 'postgresql://', 1)
-        else:
+                app.logger.info(
+                    "Converted postgres:// URL to postgresql:// format in Koyeb environment")
+        elif 'localhost' in database_url or not database_url:
+            app.logger.warning(
+                "Invalid database configuration detected in Koyeb environment")
             app.logger.warning(
                 "Falling back to SQLite in Koyeb environment due to invalid database URL")
             database_url = f'sqlite:///{sqlite_fallback_path}'
@@ -101,8 +107,19 @@ def create_app():
     if (is_production or is_koyeb) and 'localhost' in database_url:
         app.logger.warning(
             "Detected localhost in production environment, forcing SQLite fallback")
-        database_url = f'sqlite:///{sqlite_fallback_path}'
-        use_sqlite_fallback = True
+        # Try to get DATABASE_URL directly from environment again as a last resort
+        env_db_url = os.getenv('DATABASE_URL')
+        if env_db_url and 'localhost' not in env_db_url:
+            app.logger.info(
+                "Using DATABASE_URL from environment as last resort")
+            database_url = env_db_url
+            # Ensure we're using the correct protocol for PostgreSQL
+            if database_url.startswith('postgres://'):
+                database_url = database_url.replace(
+                    'postgres://', 'postgresql://', 1)
+        else:
+            database_url = f'sqlite:///{sqlite_fallback_path}'
+            use_sqlite_fallback = True
 
     app.config['SQLALCHEMY_DATABASE_URI'] = database_url
     app.config['SQLITE_FALLBACK_URI'] = f'sqlite:///{sqlite_fallback_path}'
@@ -142,6 +159,39 @@ def create_app():
     from routers.user_router import user_router
     from routers.account_router import account_router
     from routers.transaction_router import transaction_router
+
+    # Create database tables with error handling
+    with app.app_context():
+        try:
+            app.logger.info("Attempting to create database tables")
+            db.create_all()
+            app.logger.info("Database tables created successfully")
+        except Exception as e:
+            app.logger.error(f"Error creating database tables: {str(e)}")
+            # If we're in Koyeb and PostgreSQL fails, try SQLite fallback
+            if is_koyeb and use_sqlite_fallback:
+                app.logger.warning("Attempting to use SQLite fallback")
+                try:
+                    # Switch to SQLite
+                    app.config['SQLALCHEMY_DATABASE_URI'] = app.config['SQLITE_FALLBACK_URI']
+                    app.logger.info(
+                        f"Switched to SQLite fallback: {app.config['SQLITE_FALLBACK_URI']}")
+                    # Recreate engine with new connection string
+                    db.get_engine(app, bind=None).dispose()
+                    db.create_all()
+                    app.logger.info(
+                        "Successfully created tables with SQLite fallback")
+                except Exception as sqlite_error:
+                    app.logger.error(
+                        f"SQLite fallback also failed: {str(sqlite_error)}")
+            app.logger.warning(
+                "Continuing with application startup despite database issues")
+
+    # Register blueprints
+    app.register_blueprint(auth_router, url_prefix='/login')
+    app.register_blueprint(user_router, url_prefix='/users')
+    app.register_blueprint(account_router, url_prefix='/accounts')
+    app.register_blueprint(transaction_router, url_prefix='/transactions')
 
     # Root route
     @app.route('/')

@@ -16,6 +16,6 @@ RUN pip install --no-cache-dir -r requirements.txt
 # Copy application files
 COPY . .
 
-EXPOSE 8080
+EXPOSE 8000
 
-CMD ["gunicorn", "--bind", "0.0.0.0:8080", "run:app"]
+CMD ["gunicorn", "--bind", "0.0.0.0:8000", "run:app"]

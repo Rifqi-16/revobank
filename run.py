@@ -16,8 +16,14 @@ def create_app():
         'pool_pre_ping': True,
         'pool_timeout': 30,
         'pool_recycle': 1800,
+        'pool_size': 5,
+        'max_overflow': 10,
         'connect_args': {
-            'connect_timeout': 10
+            'connect_timeout': 30,
+            'keepalives': 1,
+            'keepalives_idle': 30,
+            'keepalives_interval': 10,
+            'keepalives_count': 5
         }
     }
 
@@ -77,38 +83,58 @@ def create_app():
     from werkzeug.security import generate_password_hash
 
     with app.app_context():
-        try:
-            # Initialize database tables
-            db.create_all()
-            app.logger.info("Database tables created successfully")
+        retries = 5
+        while retries > 0:
+            try:
+                # Test database connection
+                db.engine.connect()
+                app.logger.info("Successfully connected to the database")
+                # Initialize database tables
+                db.create_all()
+                app.logger.info("Database tables created successfully")
 
-            # Add sample user if not exists
-            if not User.query.filter_by(username='demo').first():
-                sample_user = User(
-                    username='demo',
-                    password_hash=generate_password_hash('password'),
-                    email='demo@revobank.com',
-                    full_name='Demo User'
-                )
-                db.session.add(sample_user)
-                db.session.commit()
-                app.logger.info("Sample user created successfully")
+                # Add sample user if not exists
+                if not User.query.filter_by(username='demo').first():
+                    app.logger.info("Creating sample user...")
+                    sample_user = User(
+                        username='demo',
+                        password_hash=generate_password_hash('password'),
+                        email='demo@revobank.com',
+                        full_name='Demo User'
+                    )
+                    db.session.add(sample_user)
+                    db.session.commit()
+                    app.logger.info("Sample user created successfully")
 
-                # Add sample account
-                sample_account = Account(
-                    user_id=sample_user.id,
-                    account_type='savings',
-                    account_number='1234567890',
-                    balance=1000.0
-                )
-                db.session.add(sample_account)
-                db.session.commit()
-                app.logger.info("Sample account created successfully")
+                    # Add sample account
+                    app.logger.info("Creating sample account...")
+                    sample_account = Account(
+                        user_id=sample_user.id,
+                        account_type='savings',
+                        account_number='1234567890',
+                        balance=1000.0
+                    )
+                    db.session.add(sample_account)
+                    db.session.commit()
+                    app.logger.info("Sample account created successfully")
+                else:
+                    app.logger.info(
+                        "Sample user already exists, skipping sample data creation")
 
-        except Exception as e:
-            app.logger.error(f"Database initialization error: {str(e)}")
-            db.session.rollback()
-            raise
+            except Exception as e:
+                retries -= 1
+                if retries == 0:
+                    app.logger.error(
+                        f"Failed to connect to database after 5 attempts: {str(e)}")
+                    raise
+                app.logger.warning(
+                    f"Database connection attempt failed. Retrying in 5 seconds... ({retries} attempts left)")
+                import time
+                time.sleep(5)  # Wait 5 seconds before retrying
+            else:
+                app.logger.info(
+                    "Database connection and initialization completed successfully")
+                break  # Break the loop if connection is successful
 
     return app
 

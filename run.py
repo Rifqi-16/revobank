@@ -87,6 +87,10 @@ def create_app():
     app.register_blueprint(account_bp, url_prefix='/api/accounts')
     app.register_blueprint(transaction_bp, url_prefix='/api/transactions')
 
+    @app.route('/')
+    def index():
+        return jsonify({"message": "Welcome to RevoBank API"})
+
     @app.route('/health')
     def health_check():
         return jsonify({"status": "healthy", "timestamp": datetime.datetime.utcnow()})

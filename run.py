@@ -2,6 +2,7 @@ from flask import Flask, jsonify
 from flask_migrate import Migrate
 from db.database import db
 import os
+import datetime
 
 
 def create_app():
@@ -10,22 +11,38 @@ def create_app():
     database_url = os.getenv('DATABASE_URL')
     if database_url and database_url.startswith('postgres://'):
         database_url = database_url.replace('postgres://', 'postgresql://', 1)
-    app.config['SQLALCHEMY_DATABASE_URI'] = database_url or 'postgresql://postgres:postgres@localhost:5432/revobank'
+
+    # Prioritize DATABASE_URL environment variable for deployment
+    # Only fallback to localhost in development environment
+    if not database_url:
+        app.logger.warning(
+            "DATABASE_URL not found in environment variables, using default local database")
+        database_url = 'postgresql://postgres:postgres@localhost:5432/revobank'
+
+    app.config['SQLALCHEMY_DATABASE_URI'] = database_url
     app.config['SQLALCHEMY_TRACK_MODIFICATIONS'] = False
-    app.config['SQLALCHEMY_ENGINE_OPTIONS'] = {
+    # Configure database connection options based on environment
+    # For deployment environments, we need more resilient settings
+    engine_options = {
         'pool_pre_ping': True,
         'pool_timeout': 30,
         'pool_recycle': 1800,
         'pool_size': 5,
-        'max_overflow': 10,
-        'connect_args': {
+        'max_overflow': 10
+    }
+
+    # Only add connect_args for non-Supabase connections
+    # Supabase and some managed PostgreSQL services don't support all these parameters
+    if database_url and 'supabase.com' not in database_url:
+        engine_options['connect_args'] = {
             'connect_timeout': 30,
             'keepalives': 1,
             'keepalives_idle': 30,
             'keepalives_interval': 10,
             'keepalives_count': 5
         }
-    }
+
+    app.config['SQLALCHEMY_ENGINE_OPTIONS'] = engine_options
 
     # Initialize extensions
     db.init_app(app)
@@ -43,10 +60,29 @@ def create_app():
     # Root route
     @app.route('/')
     def index():
+        # Check database connection status
+        db_status = "connected"
+        db_error = None
+        try:
+            with db.engine.connect() as connection:
+                pass
+        except Exception as e:
+            db_status = "disconnected"
+            db_error = str(e)
+            app.logger.error(
+                f"Database connection error on index route: {str(e)}")
+
         return jsonify({
             'name': 'RevoBank API',
             'version': '1.0',
             'description': 'A RESTful API for banking operations',
+            'status': db_status,
+            'database_info': {
+                'connection_status': db_status,
+                'error': db_error,
+                'host': app.config['SQLALCHEMY_DATABASE_URI'].split('@')[1].split('/')[0] if '@' in app.config['SQLALCHEMY_DATABASE_URI'] and len(app.config['SQLALCHEMY_DATABASE_URI'].split('@')) > 1 else 'unknown'
+            },
+            'environment': os.getenv('ENVIRONMENT', 'development'),
             'endpoints': {
                 'auth': {
                     'path': '/login',
@@ -70,7 +106,11 @@ def create_app():
                 }
             },
             'documentation': 'Refer to API_README.md for detailed documentation',
-            'status': 'active'
+            'status': 'active',
+            'deployment_info': {
+                'is_koyeb': os.getenv('KOYEB') == 'true',
+                'environment': os.getenv('ENVIRONMENT', 'development')
+            }
         })
 
     # Register blueprints
@@ -78,6 +118,62 @@ def create_app():
     app.register_blueprint(user_router, url_prefix='/users')
     app.register_blueprint(account_router, url_prefix='/accounts')
     app.register_blueprint(transaction_router, url_prefix='/transactions')
+
+    # Add diagnostic endpoint for troubleshooting
+    @app.route('/diagnostics')
+    def diagnostics():
+        # Check database connection
+        db_status = "connected"
+        db_error = None
+        connection_time = None
+        try:
+            start_time = datetime.datetime.now()
+            with db.engine.connect() as connection:
+                connection_time = (datetime.datetime.now() -
+                                   start_time).total_seconds()
+        except Exception as e:
+            db_status = "disconnected"
+            db_error = str(e)
+            app.logger.error(
+                f"Database connection error on diagnostics route: {str(e)}")
+
+        # Get database URL info (safely)
+        db_url = app.config['SQLALCHEMY_DATABASE_URI']
+        db_host = "unknown"
+        db_type = "unknown"
+
+        try:
+            if '@' in db_url and len(db_url.split('@')) > 1:
+                db_host = db_url.split('@')[1].split('/')[0]
+
+            if '://' in db_url:
+                db_type = db_url.split('://')[0]
+        except Exception as e:
+            app.logger.error(f"Error parsing database URL: {str(e)}")
+
+        return jsonify({
+            'timestamp': datetime.datetime.now().isoformat(),
+            'application': {
+                'name': 'RevoBank API',
+                'version': '1.0',
+                'environment': os.getenv('ENVIRONMENT', 'development'),
+                'is_koyeb': os.getenv('KOYEB') == 'true'
+            },
+            'database': {
+                'connection_status': db_status,
+                'connection_time_seconds': connection_time,
+                'error': db_error,
+                'type': db_type,
+                'host': db_host,
+                'database_url_set': os.getenv('DATABASE_URL') is not None
+            },
+            'environment_variables': {
+                'KOYEB': os.getenv('KOYEB') is not None,
+                'ENVIRONMENT': os.getenv('ENVIRONMENT') is not None,
+                'DATABASE_URL': os.getenv('DATABASE_URL') is not None,
+                'SECRET_KEY': os.getenv('SECRET_KEY') is not None
+            }
+        })
 
     # Add sample data for testing
     from werkzeug.security import generate_password_hash
@@ -87,6 +183,8 @@ def create_app():
         while retries > 0:
             try:
                 # Test database connection
+                app.logger.info("Attempting to connect to database at: %s",
+                                app.config['SQLALCHEMY_DATABASE_URI'].replace(":postgres@", ":****@"))
                 db.engine.connect()
                 app.logger.info("Successfully connected to the database")
                 # Initialize database tables

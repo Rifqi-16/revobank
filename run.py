@@ -267,12 +267,6 @@ def create_app():
             }
         })
 
-    # Register blueprints
-    app.register_blueprint(auth_router, url_prefix='/login', name='auth_login')
-    app.register_blueprint(user_router, url_prefix='/users')
-    app.register_blueprint(account_router, url_prefix='/accounts')
-    app.register_blueprint(transaction_router, url_prefix='/transactions')
-
     # Add diagnostic endpoint for troubleshooting
     @app.route('/diagnostics')
     def diagnostics():

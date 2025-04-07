@@ -4,6 +4,7 @@ app:
   ports:
     - port: 8080
       protocol: http
+  command: gunicorn --bind 0.0.0.0:8080 run:app
 
   env:
     - name: DATABASE_URL
